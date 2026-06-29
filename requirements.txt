@@ -1,0 +1,11 @@
+requests
+beautifulsoup4
+python-dateutil
+pdf2image
+pytesseract
+chromadb
+sentence-transformers
+pypdf
+google-genai
+python-dotenv
+python-telegram-bot

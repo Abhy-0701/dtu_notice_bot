@@ -1,0 +1,15 @@
+# Secrets (NEVER UPLOAD THESE)
+.env
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Local Databases and Temp Files
+data/
+*.pdf
