@@ -1,3 +1,6 @@
+#install tesseract and add to path
+#install poppler and add to path
+
 requests
 beautifulsoup4
 python-dateutil
