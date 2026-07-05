@@ -78,7 +78,65 @@ def search_notices(user_query):
     except Exception as e:
         return f"Error during search: {str(e)}"
 
+def answer_question(user_query):
+    """
+    Improved RAG Chat Workflow:
+    1. Increases retrieved context and improves RAG prompt.
+    2. Uses Gemini 2.0-flash for better reasoning.
+    """
+    try:
+        # 1. Increase retrieval depth to get more context
+        results = collection.query(
+            query_texts=[user_query],
+            n_results=10 
+        )
+        
+        # 2. Extract context and associated IDs to provide meta-data (like dates)
+        documents = results['documents'][0] if results['documents'] else []
+        metadatas = results['metadatas'][0] if results['metadatas'] else []
+        
+        if not documents:
+            return "I apologize, but I couldn't find any relevant university notices to help with your query."
+
+        # Combine documents with their associated dates (if available)
+        context_text = ""
+        for i, doc in enumerate(documents):
+            date = metadatas[i].get('date', 'Unknown')
+            context_text += f"Notice Date: {format_date(date)}\nContent: {doc}\n\n"
+
+        # 3. Enhance system instructions for better accuracy
+        system_instruction = (
+            "You are a helpful DTU student counselor. Answer the student's query using ONLY the provided "
+            "context from official university notices. If the information is not in the context, "
+            "admit it clearly and advise them to check the official DTU website. "
+            "Always include the date of the notice if it helps in giving a more relevant or time-sensitive answer.\n\n"
+            "CRITICAL FORMATTING RULES:\n"
+            "1. Use simple text. NO bolding (*), NO italics (_), NO code blocks (`).\n"
+            "2. Use hyphens (-) for lists.\n"
+            "3. Be concise and professional."
+        )
+
+        prompt = (
+            f"Here is the relevant information from university notices:\n{context_text}\n\n"
+            f"Student Question: {user_query}\n\n"
+            f"Please answer based on the provided information."
+        )
+
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite', 
+            contents=prompt,
+            config={"system_instruction": system_instruction}
+        )
+
+        # Sanitize output by aggressively removing all markdown
+        safe_answer = response.text.replace("*", "").replace("_", "").replace("`", "")
+        return safe_answer
+
+    except Exception as e:
+        return f"I encountered an error while consulting the archives: {str(e)}"
+
 def summarize_notice(notice_id):
+
     """
     Direct Lookup Workflow:
     1. Grabs the complete document from Storage A (notices.json).

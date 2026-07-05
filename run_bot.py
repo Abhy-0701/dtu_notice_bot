@@ -12,7 +12,7 @@ from telegram.ext import (
 from dotenv import load_dotenv
 
 # Import our Phase 3 search and summary tools
-from core.query_engine import search_notices, summarize_notice
+from core.query_engine import search_notices, summarize_notice, answer_question
 
 # Load environment variables
 load_dotenv()
@@ -37,11 +37,31 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔍 **How to use me:**\n"
         "1. **Search:** Just type any normal question (e.g., `Are there any exam dates out?` "
         "or `Any news about summer registration?`). I will search the vector database and return relevant links.\n"
-        "2. **Summarize:** Every notice listed during a search contains a unique **Notice ID**. "
+        "2. **Chat/Counseling:** Ask me anything regarding your queries. Use `/Q <your question>` "
+        "and I will process the information and provide a detailed answer.\n"
+        "3. **Summarize:** Every notice listed during a search contains a unique **Notice ID**. "
         "To read the complete details, use the summary command followed by the ID:\n"
         "   `/summary <notice_id>`"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
+
+async def handle_q_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the /Q command for natural language chat/counseling based on notices."""
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Please provide a question.\nExample: `/Q How do I register for the summer term?`",
+            parse_mode="Markdown"
+        )
+        return
+
+    query = " ".join(context.args)
+    await update.message.reply_text("🤔 *Analyzing your query and consulting the notice archives...*", parse_mode="Markdown")
+    
+    # Generate the answer using RAG
+    answer = answer_question(query)
+    
+    await update.message.reply_text(answer, parse_mode="Markdown")
+
 
 async def handle_summary_request(update: Update, context: ContextTypes.DEFAULT_TYPE, target_id: str = None):
     """Handles explicit requests to extract full-text files and compile comprehensive summaries."""
@@ -108,9 +128,10 @@ def main():
     # Build the application container using the token
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # Register command handshakes
+        # Register command handshakes
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("summary", handle_summary_request))
+    application.add_handler(CommandHandler("Q", handle_q_command))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     # Route all non-command text inputs directly to the semantic search channel
