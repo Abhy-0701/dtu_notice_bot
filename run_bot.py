@@ -1,10 +1,11 @@
 import os
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters
 )
@@ -42,22 +43,42 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-async def handle_summary_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_summary_request(update: Update, context: ContextTypes.DEFAULT_TYPE, target_id: str = None):
     """Handles explicit requests to extract full-text files and compile comprehensive summaries."""
-    # Check if the user actually passed an ID parameter
-    if not context.args:
-        await update.message.reply_text(
-            "❌ Please provide a Notice ID.\nExample: `/summary main_52a8f3a...`",
-            parse_mode="Markdown"
-        )
-        return
 
-    target_id = context.args[0].strip()
-    await update.message.reply_text("📥 *Fetching the full document and generating summary...*", parse_mode="Markdown")
+    # If called via callback, the target_id is passed directly
+    if not target_id:
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Please provide a Notice ID.\nExample: `/summary main_52a8f3a...`",
+                parse_mode="Markdown"
+            )
+            return
+        target_id = context.args[0].strip()
+
+    # Check if we are responding to a message or a callback
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("📥 *Fetching the full document and generating summary...*", parse_mode="Markdown")
+    else:
+        await update.message.reply_text("📥 *Fetching the full document and generating summary...*", parse_mode="Markdown")
     
     # Run the direct lookup workflow from Storage A (notices.json)
     summary_response = summarize_notice(target_id)
-    await update.message.reply_text(summary_response, parse_mode="Markdown")
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(summary_response, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(summary_response, parse_mode="Markdown")
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles button presses."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data.startswith("summary_"):
+        target_id = query.data.replace("summary_", "")
+        await handle_summary_request(update, context, target_id=target_id)
 
 async def handle_incoming_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Intercepts all standard text entries and treats them as semantic queries for ChromaDB."""
@@ -67,13 +88,18 @@ async def handle_incoming_text(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text("🔍 *Searching recent university notices...*", parse_mode="Markdown")
     
     # Run the RAG workflow from Storage B (ChromaDB)
-    search_response = search_notices(user_message)
+    results = search_notices(user_message)
     
-    # THE FIX: If Gemini returns an empty string, provide a fallback message!
-    if not search_response or not search_response.strip():
-        search_response = "🤖 *I couldn't find any recent notices that directly answer that query.* Try rephrasing or using broader keywords!"
+    if not results or isinstance(results, str):
+        search_response = results if results else "🤖 *I couldn't find any recent notices that directly answer that query.* Try rephrasing or using broader keywords!"
+        await update.message.reply_text(search_response, parse_mode="Markdown")
+        return
         
-    await update.message.reply_text(search_response, parse_mode="Markdown")
+    # Process and send each result with an Inline Button
+    for text, notice_id in results:
+        keyboard = [[InlineKeyboardButton("Summarize This Notice", callback_data=f"summary_{notice_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
 
 def main():
     """Initializes and kicks off the asynchronous polling engine."""
@@ -85,6 +111,7 @@ def main():
     # Register command handshakes
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("summary", handle_summary_request))
+    application.add_handler(CallbackQueryHandler(button_callback))
     
     # Route all non-command text inputs directly to the semantic search channel
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_incoming_text))

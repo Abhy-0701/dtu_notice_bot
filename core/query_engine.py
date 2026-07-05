@@ -41,81 +41,40 @@ def search_notices(user_query):
     """
     RAG Search Workflow:
     1. Embeds the user query and pulls top matches from ChromaDB.
-    2. Cross-references Storage A to retrieve and sanitize the exact Title.
-    3. Forces Gemini to output a clean, spaced-out Markdown list.
+    2. Returns a list of notices with their metadata.
     """
     try:
         results = collection.query(
             query_texts=[user_query],
-            n_results=15 
+            n_results=5 
         )
         
-        retrieved_chunks = results['documents'][0] if results['documents'] else []
         retrieved_metadata = results['metadatas'][0] if results['metadatas'] else []
         
-        if not retrieved_chunks:
-            return "I couldn't find any recent notices matching your query."
+        if not retrieved_metadata:
+            return None
 
         # Open Storage A so we can look up the titles
         with open(DB_JSON_PATH, 'r', encoding='utf-8') as f:
             full_db = json.load(f)
 
-        # Build context blocks for Gemini
-        context_blocks = []
-        for doc, meta in zip(retrieved_chunks, retrieved_metadata):
+        formatted_notices = []
+        for meta in retrieved_metadata:
             date_str = format_date(meta['date'])
             notice_id = meta['notice_id']
             
-            # Fetch the title from JSON
             raw_title = full_db.get(notice_id, {}).get("title", "Official Notice")
-            
-            # SANITIZE TITLE: Remove characters that crash Telegram's Markdown parser
             clean_title = raw_title.replace("_", " ").replace("*", "").replace("`", "").replace("[", "").replace("]", "")
             
-            block = (
-                f"NOTICE ID: {notice_id}\n"
-                f"TITLE: {clean_title}\n"
-                f"DATE: {date_str}\n"
-                f"SECTION: {meta['section']}\n"
-                f"URL: {meta['url']}\n"
-                f"CONTENT CHUNK:\n{doc}"
+            formatted_notice = (
+                f"📌 **{clean_title}**\n"
+                f"Section: {meta['section']} | Date: {date_str} | ID: `{notice_id}`\n"
+                f"[Open Document]({meta['url']})"
             )
-            context_blocks.append(block)
+            formatted_notices.append((formatted_notice, notice_id))
             
-        context_text = "\n\n---\n\n".join(context_blocks)
-        
-        # Strict System Prompt with the new Spaced & Titled template
-        system_instruction = (
-            "You are an official college notification assistant. Answer the student's question "
-            "using ONLY the provided context blocks.\n\n"
-            "CRITICAL FORMATTING RULES:\n"
-            "You must output the notices matching this EXACT format. Do not deviate.\n"
-            "Each notice must have its Title in bold, followed by the details on the next line, "
-            "and MUST be separated by a blank empty line for readability.\n\n"
-            "EXAMPLE OF A PERFECT RESPONSE:\n"
-            "📌 **Notice regarding registration for Summer Semester 2026**\n"
-            "Section: Notices | Date: 2026-05-27 | ID: `main_30baeb7ae89ac29b` | [Open Document](https://www.dtu.ac.in/notice.pdf)\n"
-            "\n"
-            "📌 **B.Tech End Semester Exam Results**\n"
-            "Section: Exam | Date: 2026-05-28 | ID: `exam_01ab68464c607bc` | [Open Document](https://exam.dtu.ac.in/result.pdf)\n\n"
-            "RULES:\n"
-            "1. The Title MUST be bolded and start with a pin emoji (📌).\n"
-            "2. The Notice ID MUST be wrapped in backticks (`).\n"
-            "3. The URL MUST be a clickable Markdown link saying '[Open Document]'.\n"
-            "4. Ensure there is EXACTLY one blank line between notices.\n"
-            "5. DO NOT output an introduction, summary, or outro paragraph.\n"
-            "6. CRITICAL: Do not use any raw underscores (_) anywhere in your response."
-        )
-        
-        prompt = f"Context from official notices:\n{context_text}\n\nStudent Query: {user_query}"
-        
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config={"system_instruction": system_instruction}
-        )
-        return response.text
-        
+        return formatted_notices
+            
     except Exception as e:
         return f"Error during search: {str(e)}"
 
