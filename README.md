@@ -10,35 +10,30 @@ This project is an automated system designed to track, process, and provide AI-p
   - `scraper.py`: Handles web scraping and downloading of notices.
   - `processor.py`: Handles document parsing, OCR, and database ingestion.
   - `query_engine.py`: Handles RAG (Retrieval-Augmented Generation) for search and summarization.
+- `test_brain.py`: Contains test cases for core functionalities of the bot.
 
 ---
 
 ## Workflow Overview
 
-The application operates in two distinct workflows:
+The application operates in three main interaction modes via the Telegram bot, powered by RAG (Retrieval-Augmented Generation):
 
-### 1. Data Ingestion Pipeline (`run_scraper.py`)
-This workflow is typically triggered on a schedule to keep the bot's knowledge base current.
+### 1. Semantic Search (`search_notices`)
+- Users send plain-text queries to find relevant university notices.
+- The system embeds the query and retrieves the top 5 matches from the Vector Database (ChromaDB).
+- Returns a list of notices with titles, dates, and links to the original documents.
 
-1.  **Discovery (`core/scraper.py`)**: The script crawls the university notice board to identify and download new files.
-2.  **Processing & Indexing (`core/processor.py`)**: 
-    - The downloaded files are parsed (utilizing OCR where necessary).
-    - Data is stored in two formats:
-        - **Full-text storage**: A JSON file for quick record retrieval.
-        - **Vector Database**: An index (ChromaDB) created to support semantic search.
+### 2. Question Answering (`answer_question`)
+- Users can ask specific questions about university procedures, deadlines, or rules.
+- **RAG Implementation**:
+    - The engine performs an expanded search, retrieving the top 10 relevant document snippets.
+    - These snippets, along with their associated metadata (like dates), are passed into Gemini 2.0-flash as context.
+    - A specialized system instruction ensures the AI answers only using the provided context, acting as a DTU student counselor, while maintaining strict formatting (plain text, no Markdown).
 
-### 2. User Interaction (`run_bot.py`)
-This workflow runs as a persistent service listening for updates from Telegram.
-
-1.  **Semantic Search**:
-    - Users send plain-text queries to the bot.
-    - `run_bot.py` triggers `core/query_engine.py:search_notices()`.
-    - The engine performs a semantic search against the Vector Database and returns relevant notice information.
-2.  **Detailed Summarization**:
-    - Users request a summary of a specific notice using the `/summary <notice_id>` command.
-    - `run_bot.py` triggers `core/query_engine.py:summarize_notice()`.
-    - The engine retrieves the full document record and generates a concise summary.
-
+### 3. Detailed Summarization (`summarize_notice`)
+- Users request a summary of a specific notice using its unique ID.
+- The engine performs a direct lookup in the `notices.json` file.
+- Gemini processes the full document text to provide a structured, concise summary of key dates, deadlines, and rules, ensuring output safety for Telegram.
 ---
 
 ## Setup Requirements
